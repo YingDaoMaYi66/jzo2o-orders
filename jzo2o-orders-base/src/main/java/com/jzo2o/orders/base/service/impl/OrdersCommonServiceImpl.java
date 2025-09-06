@@ -24,7 +24,7 @@ public class OrdersCommonServiceImpl extends ServiceImpl<OrdersMapper, Orders> i
     public Integer updateStatus(OrderUpdateStatusDTO orderUpdateStatusReqDTO) {
         LambdaUpdateWrapper<Orders> updateWrapper = Wrappers.<Orders>lambdaUpdate()
                 .eq(Orders::getId, orderUpdateStatusReqDTO.getId())
-                .gt(Orders::getUserId, 0)
+               // .gt(Orders::getUserId, 0)
                 .eq(ObjectUtil.isNotNull(orderUpdateStatusReqDTO.getOriginStatus()),Orders::getOrdersStatus,orderUpdateStatusReqDTO.getOriginStatus())
                 .set(Orders::getOrdersStatus, orderUpdateStatusReqDTO.getTargetStatus())
                 .set(ObjectUtil.isNotNull(orderUpdateStatusReqDTO.getPayStatus()),Orders::getPayStatus,orderUpdateStatusReqDTO.getPayStatus())
