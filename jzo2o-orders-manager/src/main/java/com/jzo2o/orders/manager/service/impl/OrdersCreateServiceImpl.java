@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jzo2o.api.customer.dto.response.AddressBookResDTO;
 import com.jzo2o.api.foundations.ServeApi;
 import com.jzo2o.api.foundations.dto.response.ServeAggregationResDTO;
+import com.jzo2o.api.market.dto.response.AvailableCouponsResDTO;
 import com.jzo2o.api.trade.NativePayApi;
 import com.jzo2o.api.trade.TradingApi;
 import com.jzo2o.api.trade.dto.request.NativePayReqDTO;
@@ -33,6 +34,7 @@ import com.jzo2o.orders.manager.model.dto.response.PlaceOrderResDTO;
 import com.jzo2o.orders.manager.porperties.TradeProperties;
 import com.jzo2o.orders.manager.service.IOrdersCreateService;
 import com.jzo2o.orders.manager.service.impl.client.CustomerClient;
+import com.jzo2o.orders.manager.service.impl.client.MarketClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -78,11 +80,16 @@ public class OrdersCreateServiceImpl extends ServiceImpl<OrdersMapper, Orders> i
     @Resource
     private OrderStateMachine orderStateMachine;
 
+    @Resource
+    private MarketClient marketClient;
+
     /**
      * 读取配置文件
      */
     @Resource
     private TradeProperties tradeProperties;
+
+
 
 
     /**
@@ -197,7 +204,7 @@ public class OrdersCreateServiceImpl extends ServiceImpl<OrdersMapper, Orders> i
         }
         //调用状态机的启动方法
         //参数列表:long dbShardId, 分库分表的时候要用，String BizId订单id T bizSnapshot 订单快照
-        OrderSnapshotDTO orderSnapshotDTO  = BeanUtils.toBean(orders, OrderSnapshotDTO.class);
+        OrderSnapshotDTO orderSnapshotDTO  = BeanUtils.toBean(getById(orders.getId()), OrderSnapshotDTO.class);
         //分库是根据用户id来分的，这里传入用户id
         orderStateMachine.start(orders.getUserId(), orders.getId().toString(),orderSnapshotDTO);
     }
@@ -358,13 +365,9 @@ public class OrdersCreateServiceImpl extends ServiceImpl<OrdersMapper, Orders> i
         //使用状态机将待支付状态改为支付中
         OrderSnapshotDTO orderSnapshotDTO  = new OrderSnapshotDTO();
         orderSnapshotDTO.setTradingOrderNo(tradeStatusMsg.getTradingOrderNo());//交易单号
-        System.out.println(orderSnapshotDTO.getTradingOrderNo()+"666");
         orderSnapshotDTO.setTradingChannel(tradeStatusMsg.getTradingChannel());//支付渠道
-        System.out.println(orderSnapshotDTO.getTradingOrderNo()+"666");
         orderSnapshotDTO.setPayTime(LocalDateTime.now());//支付成功时间
-        System.out.println(orderSnapshotDTO.getTradingOrderNo()+"666");
         orderSnapshotDTO.setThirdOrderId(tradeStatusMsg.getTransactionId());//第三方支付平台的交易单号
-        System.out.println(orderSnapshotDTO.getTradingOrderNo()+"666");
         orderStateMachine.changeStatus(byId.getUserId(), tradeStatusMsg.getProductOrderNo().toString(), OrderStatusChangeEventEnum.PAYED, orderSnapshotDTO);
 
     }
@@ -377,6 +380,29 @@ public class OrdersCreateServiceImpl extends ServiceImpl<OrdersMapper, Orders> i
                 .last("limit " + count)
                 .list();
         return list;
+    }
+    /**
+     * 获取可用优惠券
+     *
+     * @param serveId 服务id
+     * @param purNum  购买数量
+     * @return 可用优惠券列表
+     */
+    @Override
+    public List<AvailableCouponsResDTO> getAvailableCoupons(Long serveId, Integer purNum) {
+        //远程调用foundations
+        ServeAggregationResDTO serveAggregationResDTO = serveApi.findById(serveId);
+        if (ObjectUtils.isNull(serveAggregationResDTO)||serveAggregationResDTO.getSaleStatus() !=2) {
+            throw new CommonException("服务信息不可用");
+        }
+        //单价
+        BigDecimal price = serveAggregationResDTO.getPrice();
+        //计算订单总价
+        BigDecimal totalAmount = price.multiply(new BigDecimal(purNum));        
+        //远程调用优惠券服务查询可用优惠券
+        List<AvailableCouponsResDTO> available = marketClient.getAvailable(totalAmount);
+        //返回可用优惠列表
+        return available;
     }
 }
 

@@ -1,0 +1,53 @@
+package com.jzo2o.orders.manager.service.impl.client;
+
+import com.alibaba.csp.sentinel.annotation.SentinelResource;
+import com.alibaba.csp.sentinel.slots.block.BlockException;
+import com.jzo2o.api.customer.AddressBookApi;
+import com.jzo2o.api.customer.dto.response.AddressBookResDTO;
+import com.jzo2o.api.market.dto.CouponApi;
+import com.jzo2o.api.market.dto.response.AvailableCouponsResDTO;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.Resource;
+import java.math.BigDecimal;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * @Description 实现降级逻辑的类
+ * @Author Administrator
+ * @Date 2025/08/09 13:18
+ * @Version 1.0
+ */
+@Component
+@Slf4j
+public class MarketClient {
+
+    @Resource
+    private CouponApi couponApi;
+
+    //value:定义Sentinel监控的资源名称(唯一标识)。
+    //fallback:指定熔断降级的fallback方法当方法抛出异常时触发
+    //blockHandler 指定流量控制方法，当sentinel触发限流或熔断规则时调用
+    @SentinelResource(value = "getAvailableByCouponApi", fallback = "getAvailableFallback", blockHandler = "getAvailableBlockHandler")
+    public List<AvailableCouponsResDTO> getAvailable(BigDecimal totalAmount) {
+
+        log.error("查询可用优惠券,订单金额:{}",totalAmount);
+        //调用可用优惠券
+        List<AvailableCouponsResDTO> available = couponApi.getAvailable(totalAmount);
+        return available;
+    }
+
+    //执行异常走
+    public List<AvailableCouponsResDTO> getAvailableFallback(BigDecimal totalAmount, Throwable throwable) {
+        log.error("非限流、熔断等导致的异常执行的降级方法，totalAmount:{},throwable:", totalAmount, throwable);
+        return Collections.emptyList();
+    }
+
+    //熔断后的降级逻辑
+    public List<AvailableCouponsResDTO> getAvailableBlockHandler(BigDecimal totalAmount, BlockException blockException) {
+        log.error("触发限流、熔断时执行的降级方法，totalAmount:{},blockException:", totalAmount, blockException);
+        return Collections.emptyList();
+    }
+}
