@@ -4,7 +4,10 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jzo2o.api.customer.dto.response.AddressBookResDTO;
 import com.jzo2o.api.foundations.ServeApi;
 import com.jzo2o.api.foundations.dto.response.ServeAggregationResDTO;
+import com.jzo2o.api.market.dto.CouponApi;
+import com.jzo2o.api.market.dto.request.CouponUseReqDTO;
 import com.jzo2o.api.market.dto.response.AvailableCouponsResDTO;
+import com.jzo2o.api.market.dto.response.CouponUseResDTO;
 import com.jzo2o.api.trade.NativePayApi;
 import com.jzo2o.api.trade.TradingApi;
 import com.jzo2o.api.trade.dto.request.NativePayReqDTO;
@@ -35,6 +38,7 @@ import com.jzo2o.orders.manager.porperties.TradeProperties;
 import com.jzo2o.orders.manager.service.IOrdersCreateService;
 import com.jzo2o.orders.manager.service.impl.client.CustomerClient;
 import com.jzo2o.orders.manager.service.impl.client.MarketClient;
+import io.seata.spring.annotation.GlobalTransactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -82,6 +86,9 @@ public class OrdersCreateServiceImpl extends ServiceImpl<OrdersMapper, Orders> i
 
     @Resource
     private MarketClient marketClient;
+
+    @Resource
+    private CouponApi couponApi;
 
     /**
      * 读取配置文件
@@ -185,14 +192,53 @@ public class OrdersCreateServiceImpl extends ServiceImpl<OrdersMapper, Orders> i
         //排序字段，根据服务开始时间装换成毫秒时间，并加上订单后五位
         long sortBy = DateUtils.toEpochMilli(orders.getServeStartTime()) + orders.getId() % 100000;
         orders.setSortBy(sortBy);
+        //todo 判断如果使用了优惠券则进行核销
+        if(ObjectUtils.isNotNull(placeOrderReqDTO.getCouponId())) {
+            //进行核销
+            owner.addWithCoupon(orders, placeOrderReqDTO.getCouponId());
+        }else {
+            //保存数据
+            owner.add(orders);
+        }
 
-        //保存数据
-        owner.add(orders);
+
+
+
 
         //返回数据
         PlaceOrderResDTO placeOrderResDTO = new PlaceOrderResDTO();
         placeOrderResDTO.setId(orders.getId());
         return placeOrderResDTO;
+    }
+
+    /**
+     * 当下单时有优惠券时调用此方法进行优惠券核销
+     * @param orders
+     * @param couponId
+     */
+//    @Transactional(rollbackFor = Exception.class)
+    @GlobalTransactional//开启全局事务
+    public void addWithCoupon(Orders orders,Long couponId) {
+        //远程调用优惠券服务进行核销
+        CouponUseReqDTO couponUseReqDTO = new CouponUseReqDTO();
+        //订单id
+        couponUseReqDTO.setOrdersId(orders.getId());
+        //优惠券id
+        couponUseReqDTO.setId(couponId);
+        //总金额
+        couponUseReqDTO.setTotalAmount(orders.getTotalAmount());
+        //核销成功返回优惠金额
+        CouponUseResDTO couponUseResDTO = couponApi.use(couponUseReqDTO);
+
+        // 优惠金额
+        orders.setDiscountAmount(couponUseResDTO.getDiscountAmount());
+
+        //优惠价格=总金额减去优惠价格
+        orders.setRealPayAmount(NumberUtils.sub(orders.getTotalAmount(), orders.getDiscountAmount()));
+
+        //保存订单信息
+        add(orders);
+
     }
 
     @Transactional(rollbackFor = Exception.class)
